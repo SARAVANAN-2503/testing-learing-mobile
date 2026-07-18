@@ -1,7 +1,7 @@
 const API = 'https://api.zoujup.com/api/v1';
 const WS = 'https://realtime.zoujup.com';
 const $ = (id) => document.getElementById(id);
-const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','matchIncomingCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn'].map(id=>[id,$(id)]));
+const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','matchIncomingCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn','matchPresenceStatus'].map(id=>[id,$(id)]));
 
 const DEFAULT_LANGUAGES = [
   ['en','English'],['es','Spanish'],['fr','French'],['de','German'],['it','Italian'],
@@ -232,8 +232,8 @@ async function loadActive(){await connectIfNeeded();const data=await api('/calls
 async function connectIfNeeded(){if(!socket?.connected)await connectSocket()}
 
 // --- Matching Flow API Simulation ---
-// --- Matching Flow API Simulation ---
 let matchPollingInterval = null;
+let matchPresenceHeartbeatInterval = null;
 
 async function registerAvailability() {
   const native = selectedLanguage(ui.knownLanguage);
@@ -245,10 +245,24 @@ async function registerAvailability() {
     nativeLanguage: native.code,
     availableFrom: now,
     availableUntil: now + 3600,
-    availabilityMode: 'same_time'
+    availabilityMode: 'same_time',
+    candidateTtlSeconds: 900
   });
   log('MATCH', 'Availability updated successfully', data);
+  
+  // Set UI state to online
+  ui.matchPresenceStatus.textContent = 'ONLINE';
+  ui.matchPresenceStatus.style.color = '#28a745';
+  
+  // Send initial presence heartbeat immediately
+  await sendPresenceHeartbeat().catch(fail);
+  
   startMatchingPolling();
+}
+
+async function sendPresenceHeartbeat() {
+  const data = await api('/matching/presence/heartbeat', 'POST');
+  log('MATCH', 'Presence heartbeat refreshed successfully', data);
 }
 
 async function getCompatibleCandidates() {
@@ -381,15 +395,26 @@ async function declineMatchRequest() {
 }
 
 function startMatchingPolling() {
-  if (matchPollingInterval) return;
-  log('MATCH', 'Starting automatic matching updates (5s interval)');
-  matchPollingInterval = setInterval(() => {
-    const token = ui.token.value.trim();
-    if (token) {
-      getCompatibleCandidates().catch(() => {});
-      getIncomingRequests().catch(() => {});
-    }
-  }, 5000);
+  if (!matchPollingInterval) {
+    log('MATCH', 'Starting automatic matching updates (5s interval)');
+    matchPollingInterval = setInterval(() => {
+      const token = ui.token.value.trim();
+      if (token) {
+        getCompatibleCandidates().catch(() => {});
+        getIncomingRequests().catch(() => {});
+      }
+    }, 5000);
+  }
+
+  if (!matchPresenceHeartbeatInterval) {
+    log('MATCH', 'Starting matching presence heartbeats (30s interval)');
+    matchPresenceHeartbeatInterval = setInterval(() => {
+      const token = ui.token.value.trim();
+      if (token) {
+        sendPresenceHeartbeat().catch(err => log('WARN', 'Presence heartbeat failed', err.message));
+      }
+    }, 30000);
+  }
 }
 
 function cleanup(reason){
@@ -398,6 +423,15 @@ function cleanup(reason){
     clearInterval(matchPollingInterval);
     matchPollingInterval = null;
   }
+  if (matchPresenceHeartbeatInterval) {
+    clearInterval(matchPresenceHeartbeatInterval);
+    matchPresenceHeartbeatInterval = null;
+  }
+  
+  // Set UI state to offline
+  ui.matchPresenceStatus.textContent = 'OFFLINE';
+  ui.matchPresenceStatus.style.color = '#dc3545';
+
   localStream?.getTracks().forEach(t=>t.stop());
   pc?.close();
   pc=null;
