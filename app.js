@@ -1,7 +1,7 @@
 const API = 'https://api.zoujup.com/api/v1';
 const WS = 'https://realtime.zoujup.com';
 const $ = (id) => document.getElementById(id);
-const ui = Object.fromEntries(['role','token','myUserId','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning'].map(id=>[id,$(id)]));
+const ui = Object.fromEntries(['role','token','myUserId','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleSelect','matchSendRequestBtn','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn'].map(id=>[id,$(id)]));
 
 const DEFAULT_LANGUAGES = [
   ['en','English'],['es','Spanish'],['fr','French'],['de','German'],['it','Italian'],
@@ -221,6 +221,91 @@ async function disableVideo(){const track=localStream?.getVideoTracks()[0];track
 async function endCall(){if(currentCallId)await api(`/calls/${currentCallId}/end`,'POST').catch(fail);cleanup('ended locally')}
 async function loadActive(){await connectIfNeeded();const data=await api('/calls/active');if(!data)return setCallStatus('no active call');currentCallId=callIdFrom(data);ui.callId.value=currentCallId;ui.conversationId.value=data.conversationId||'';caller=!!data.callerId;await attachCall(currentCallId);setCallStatus(data.status||'active loaded')}
 async function connectIfNeeded(){if(!socket?.connected)await connectSocket()}
+
+// --- Matching Flow API Simulation ---
+async function registerAvailability() {
+  const native = selectedLanguage(ui.knownLanguage);
+  const target = selectedLanguage(ui.learnLanguage);
+  const now = Math.floor(Date.now() / 1000);
+  const data = await api('/matching/availability', 'POST', {
+    isReady: true,
+    targetLanguage: target.code,
+    nativeLanguage: native.code,
+    availableFrom: now,
+    availableUntil: now + 3600,
+    availabilityMode: 'same_time'
+  });
+  log('MATCH', 'Availability updated successfully', data);
+}
+
+async function getCompatibleCandidates() {
+  const native = selectedLanguage(ui.knownLanguage);
+  const target = selectedLanguage(ui.learnLanguage);
+  const data = await api(`/matching/availability/compatible?limit=10&tab=best_match`, 'GET');
+  const candidates = Array.isArray(data) ? data : (data?.items || data?.data || []);
+  
+  log('MATCH', `Compatible candidates found: ${candidates.length}`, candidates);
+  
+  if (candidates.length > 0) {
+    ui.matchCompatibleSelect.innerHTML = candidates.map(c => {
+      const u = c.user || c;
+      const uid = u.id || u.userId || c.userId || '';
+      const name = u.displayName || u.fullName || uid;
+      return `<option value="${uid}">${name} (${uid})</option>`;
+    }).join('');
+    // Also auto-fill the peerUserId field for convenience
+    ui.peerUserId.value = ui.matchCompatibleSelect.value;
+  } else {
+    ui.matchCompatibleSelect.innerHTML = '<option value="">-- No compatible partners found --</option>';
+  }
+}
+
+async function sendMatchRequest() {
+  const candidateUserId = ui.matchCompatibleSelect.value || ui.peerUserId.value.trim();
+  if (!candidateUserId) throw new Error('Select a partner or enter peer user ID first');
+  const data = await api('/matching/requests', 'POST', {
+    candidateUserId,
+    expiresInSeconds: 300
+  });
+  log('MATCH', 'Match request sent', data);
+}
+
+async function getIncomingRequests() {
+  const data = await api('/matching/candidates/incoming', 'GET');
+  const incoming = Array.isArray(data) ? data : (data?.items || data?.data || []);
+  log('MATCH', `Incoming match requests found: ${incoming.length}`, incoming);
+  
+  if (incoming.length > 0) {
+    // Select the first active request ID
+    const firstReq = incoming[0];
+    const candidateId = firstReq.id || firstReq.candidateId;
+    if (candidateId) {
+      ui.incomingMatchIdInput.value = candidateId;
+      log('MATCH', `Auto-filled incoming candidate request ID`, candidateId);
+    }
+  } else {
+    log('MATCH', 'No incoming match requests found');
+  }
+}
+
+async function acceptMatchRequest() {
+  const matchId = ui.incomingMatchIdInput.value.trim();
+  if (!matchId) throw new Error('Enter or select an incoming match request ID');
+  const data = await api(`/matching/candidates/${matchId}/respond`, 'POST', {
+    action: 'accept'
+  });
+  log('MATCH', 'Match request ACCEPTED', data);
+}
+
+async function declineMatchRequest() {
+  const matchId = ui.incomingMatchIdInput.value.trim();
+  if (!matchId) throw new Error('Enter or select an incoming match request ID');
+  const data = await api(`/matching/candidates/${matchId}/respond`, 'POST', {
+    action: 'reject'
+  });
+  log('MATCH', 'Match request REJECTED', data);
+}
+
 function cleanup(reason){clearInterval(heartbeat);localStream?.getTracks().forEach(t=>t.stop());pc?.close();pc=null;localStream=null;remoteStream=new MediaStream();currentCallId='';lastHandledUpgradeRevision=null;videoTransceiver=null;ui.callId.value='';ui.localVideo.srcObject=null;ui.remoteVideo.srcObject=null;ui.endBtn.disabled=true;ui.upgradeBtn.disabled=true;ui.disableVideoBtn.disabled=true;ui.remoteTrackStatus.textContent='not received';ui.pcStatus.textContent='closed';setCallStatus(reason);log('CALL','cleanup',reason)}
 
 function bind(id,fn){ui[id]?.addEventListener('click',()=>fn().catch(fail))}
@@ -228,6 +313,18 @@ bind('connectBtn',connectSocket);bind('loadActiveBtn',loadActive);bind('startAud
 bind('sendOtpBtn',sendOtp);bind('verifyOtpBtn',verifyOtp);
 bind('registerBtn',registerAccount);bind('completeRegisterBtn',verifyRegisterAndOnboard);
 bind('createConversationBtn',createConversation);bind('markReadyBtn',markConversationReady);
+
+bind('matchRegisterAvailabilityBtn', registerAvailability);
+bind('matchGetCompatibleBtn', getCompatibleCandidates);
+bind('matchGetIncomingBtn', getIncomingRequests);
+bind('matchSendRequestBtn', sendMatchRequest);
+bind('matchAcceptBtn', acceptMatchRequest);
+bind('matchDeclineBtn', declineMatchRequest);
+
+ui.matchCompatibleSelect.addEventListener('change', () => {
+  ui.peerUserId.value = ui.matchCompatibleSelect.value;
+});
+
 ui.copyRegisterToLoginBtn.onclick=()=>{ui.email.value=ui.registerEmail.value.trim();log('UI','Register email copied to login OTP field',{email:ui.email.value})};
 ui.clearLogBtn.onclick=()=>ui.log.textContent='';ui.copyReportBtn.onclick=async()=>{dumpTransceivers('report requested');await navigator.clipboard.writeText(ui.log.textContent);log('UI','diagnostic report copied')};
 document.querySelectorAll('[data-role-preset]').forEach(button=>button.addEventListener('click',()=>{ui.role.value=button.dataset.rolePreset;log('UI','device name changed',ui.role.value)}));

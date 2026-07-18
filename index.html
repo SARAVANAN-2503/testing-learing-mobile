@@ -102,6 +102,32 @@
           <button id="markReadyBtn">Mark ready</button>
           <button id="connectBtn" class="primary">Connect realtime</button>
         </div>
+
+        <details class="advanced" style="margin-top: 15px;">
+          <summary>Option B: Matching Flow (Simulate Flutter App Matchmaker)</summary>
+          <div class="form-grid compact" style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px;">
+            <div class="button-row wide" style="margin-bottom: 8px;">
+              <button id="matchRegisterAvailabilityBtn">1. Set Online Availability</button>
+              <button id="matchGetCompatibleBtn">2. Search Compatible Partners</button>
+              <button id="matchGetIncomingBtn">Check Incoming Requests</button>
+            </div>
+            <label class="wide">Select Compatible Partner
+              <select id="matchCompatibleSelect" style="width: 100%; margin-top: 4px; padding: 6px;">
+                <option value="">-- No partners loaded --</option>
+              </select>
+            </label>
+            <div class="button-row wide" style="margin-top: 8px; margin-bottom: 8px;">
+              <button id="matchSendRequestBtn" class="primary">3. Send Match Request</button>
+            </div>
+            <label class="wide">Incoming Match Request ID / Candidate ID
+              <input id="incomingMatchIdInput" placeholder="Candidate ID (e.g. from incoming list)" style="margin-top: 4px;">
+            </label>
+            <div class="button-row wide" style="margin-top: 8px;">
+              <button id="matchAcceptBtn" class="success">Accept Match Request</button>
+              <button id="matchDeclineBtn" class="danger">Reject Match Request</button>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section class="card step call-card">
