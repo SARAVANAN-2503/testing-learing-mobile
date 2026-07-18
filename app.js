@@ -1,7 +1,7 @@
 const API = 'https://api.zoujup.com/api/v1';
 const WS = 'https://realtime.zoujup.com';
 const $ = (id) => document.getElementById(id);
-const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn'].map(id=>[id,$(id)]));
+const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','matchIncomingCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn'].map(id=>[id,$(id)]));
 
 const DEFAULT_LANGUAGES = [
   ['en','English'],['es','Spanish'],['fr','French'],['de','German'],['it','Italian'],
@@ -312,21 +312,53 @@ async function sendMatchRequest(forcedUid) {
 
 async function getIncomingRequests() {
   const data = await api('/matching/candidates/incoming', 'GET');
-  const incoming = Array.isArray(data) ? data : (data?.items || data?.data || []);
+  const incoming = data?.requests || data?.data?.requests || (Array.isArray(data) ? data : []);
   log('MATCH', `Incoming match requests found: ${incoming.length}`, incoming);
   
   if (incoming.length > 0) {
-    // Select the first active request ID
+    // Set the hidden input value to the first active request for compatibility
     const firstReq = incoming[0];
-    const candidateId = firstReq.id || firstReq.candidateId;
-    if (candidateId) {
-      ui.incomingMatchIdInput.value = candidateId;
-      log('MATCH', `Auto-filled incoming candidate request ID`, candidateId);
-    }
+    ui.incomingMatchIdInput.value = firstReq.matchId || firstReq.id || firstReq.candidateId || '';
+    
+    ui.matchIncomingCards.innerHTML = incoming.map(r => {
+      const matchId = r.matchId || r.id || '';
+      const name = r.requesterName || r.requesterId || 'Unknown Requester';
+      const score = r.score !== undefined ? r.score : '';
+      const state = r.matchState || 'pending';
+      
+      return `
+        <div class="incoming-card" style="border: 1px solid #ddd; border-radius: 4px; padding: 8px; margin-bottom: 4px; background: #fff; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="flex: 1;">
+            <div style="font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+              <span>${name}</span>
+              <span style="font-size: 10px; padding: 2px 6px; border-radius: 10px; background: #007bff; color: #fff;">${state}</span>
+            </div>
+            <div style="font-size: 12px; color: #666; margin-top: 2px;">
+              Score: <strong>${score}</strong> | Request ID: <span style="font-family: monospace; font-size: 11px;">${matchId}</span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button onclick="window.respondMatchRequest('${matchId}', 'accept')" class="success" style="padding: 4px 8px; font-size: 11px; margin: 0; min-height: unset; height: auto;">Accept</button>
+            <button onclick="window.respondMatchRequest('${matchId}', 'reject')" class="danger" style="padding: 4px 8px; font-size: 11px; margin: 0; min-height: unset; height: auto;">Decline</button>
+          </div>
+        </div>
+      `;
+    }).join('');
   } else {
-    log('MATCH', 'No incoming match requests found');
+    ui.incomingMatchIdInput.value = '';
+    ui.matchIncomingCards.innerHTML = '<p style="color: #666; margin: 8px; font-size: 13px; text-align: center;">No incoming match requests.</p>';
   }
 }
+
+// Attach helper to window scope so inline buttons in card template can call it
+window.respondMatchRequest = (matchId, action) => {
+  ui.incomingMatchIdInput.value = matchId;
+  if (action === 'accept') {
+    acceptMatchRequest().catch(fail);
+  } else {
+    declineMatchRequest().catch(fail);
+  }
+};
 
 async function acceptMatchRequest() {
   const matchId = ui.incomingMatchIdInput.value.trim();

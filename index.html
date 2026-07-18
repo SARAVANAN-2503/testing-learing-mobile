@@ -119,13 +119,16 @@
                 <p style="color: #666; margin: 8px; font-size: 13px; text-align: center;">No compatible partners loaded. Click Search or set availability.</p>
               </div>
             </div>
-            <label class="wide">Incoming Match Request ID / Candidate ID
-              <input id="incomingMatchIdInput" placeholder="Candidate ID (e.g. from incoming list)" style="margin-top: 4px;">
-            </label>
-            <div class="button-row wide" style="margin-top: 8px;">
-              <button id="matchAcceptBtn" class="success">Accept Match Request</button>
-              <button id="matchDeclineBtn" class="danger">Reject Match Request</button>
+            <div class="wide">
+              <label>Incoming Match Requests</label>
+              <div id="matchIncomingCards" style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px; max-height: 250px; overflow-y: auto; padding: 4px; border: 1px solid #ccc; border-radius: 4px; background: #fafafa;">
+                <p style="color: #666; margin: 8px; font-size: 13px; text-align: center;">No incoming match requests. Polling is active.</p>
+              </div>
             </div>
+            <!-- Hidden inputs kept for compatibility with background JS references -->
+            <input type="hidden" id="incomingMatchIdInput">
+            <button id="matchAcceptBtn" style="display: none;"></button>
+            <button id="matchDeclineBtn" style="display: none;"></button>
           </div>
         </details>
       </section>
