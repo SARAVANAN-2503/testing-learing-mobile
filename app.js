@@ -451,12 +451,12 @@ async function getCompatibleCandidates() {
   
   if (candidates.length > 0) {
     ui.matchCompatibleCards.innerHTML = candidates.map(c => {
-      const u = c.partner || c.user || c;
-      const uid = u.id || u.userId || c.candidateId || c.userId || '';
-      const name = u.displayName || u.fullName || uid;
+      const u = c.candidate || c.partner || c.user || c;
+      const uid = c.candidateId || u.id || u.userId || c.userId || '';
+      const name = u.displayName || u.fullName || u.name || uid;
       const nativeLabel = u.nativeLanguage || '';
       const learnLabel = u.targetLanguage || u.learningLanguages?.join(', ') || '';
-      const status = u.availabilityStatus || c.status || 'offline';
+      const status = u.availabilityStatus || c.status || u.status || 'offline';
       const score = c.score !== undefined ? c.score : '';
       
       const badgeColor = status === 'online' ? '#28a745' : (status === 'recently_offline' ? '#ffc107' : '#6c757d');
