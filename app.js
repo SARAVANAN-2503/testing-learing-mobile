@@ -1,7 +1,7 @@
 const API = 'https://api.zoujup.com/api/v1';
 const WS = 'https://realtime.zoujup.com';
 const $ = (id) => document.getElementById(id);
-const ui = Object.fromEntries(['role','token','myUserId','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn'].map(id=>[id,$(id)]));
+const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn'].map(id=>[id,$(id)]));
 
 const DEFAULT_LANGUAGES = [
   ['en','English'],['es','Spanish'],['fr','French'],['de','German'],['it','Italian'],
@@ -92,7 +92,16 @@ async function completeMinimalOnboarding(){
   log('AUTH','Minimal onboarding completed',{native:native.code,target:target.code,level});
 }
 function userIdFromProfile(data){return data?.id||data?.userId||data?.user_id||data?.profile?.id||data?.user?.id||''}
-async function refreshMe(){const me=await api('/users/me');const userId=userIdFromProfile(me);if(userId)ui.myUserId.value=userId;log('AUTH','Current user loaded',{userId,onboardingStatus:me?.onboardingStatus})}
+async function refreshMe(){
+  const me=await api('/users/me');
+  const userId=userIdFromProfile(me);
+  if(userId)ui.myUserId.value=userId;
+  const native = me?.nativeLanguage || me?.profile?.nativeLanguage || '';
+  const target = me?.targetLanguage || me?.profile?.targetLanguage || '';
+  ui.myNativeLanguage.value = native;
+  ui.myLearnLanguage.value = target;
+  log('AUTH','Current user loaded',{userId,native,target,onboardingStatus:me?.onboardingStatus});
+}
 async function createConversation(){
   const peerUserId=ui.peerUserId.value.trim();
   if(!peerUserId)throw new Error('Paste the peer user ID first');
