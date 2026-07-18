@@ -1,7 +1,7 @@
 const API = 'https://api.zoujup.com/api/v1';
 const WS = 'https://realtime.zoujup.com';
 const $ = (id) => document.getElementById(id);
-const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','matchIncomingCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn','matchPresenceStatus'].map(id=>[id,$(id)]));
+const ui = Object.fromEntries(['role','token','myUserId','myNativeLanguage','myLearnLanguage','email','otp','sendOtpBtn','verifyOtpBtn','registerEmail','registerName','registerOtp','knownLanguage','learnLanguage','cefrLevel','registerBtn','completeRegisterBtn','copyRegisterToLoginBtn','peerUserId','createConversationBtn','markReadyBtn','conversationId','callId','connectBtn','loadActiveBtn','startAudioBtn','acceptBtn','declineBtn','upgradeBtn','acceptVideoBtn','declineVideoBtn','disableVideoBtn','endBtn','copyReportBtn','clearLogBtn','socketStatus','callStatus','pcStatus','remoteTrackStatus','localVideoInfo','remoteVideoInfo','localVideo','remoteVideo','log','secureBadge','secureWarning','dependencyWarning','matchRegisterAvailabilityBtn','matchGetCompatibleBtn','matchGetIncomingBtn','matchCompatibleCards','matchIncomingCards','incomingMatchIdInput','matchAcceptBtn','matchDeclineBtn','matchPresenceStatus','useGuidedMatch'].map(id=>[id,$(id)]));
 
 const DEFAULT_LANGUAGES = [
   ['en','English'],['es','Spanish'],['fr','French'],['de','German'],['it','Italian'],
@@ -123,7 +123,7 @@ function emitAck(event, payload) {
     if(!socket?.connected) return reject(new Error('Realtime socket is not connected'));
     log('SOCKET →', event, payload);
     const timer=setTimeout(()=>reject(new Error(`${event} ack timed out`)),10000);
-    socket.emit(event,payload,(ack)=>{clearTimeout(timer);log('SOCKET ACK',event,ack);ack?.ok===false?reject(new Error(`${ack.code||'ERROR'}: ${ack.message||event}`)):resolve(ack||{ok:true});});
+    socket.emit(event,payload,(ack)=>{clearTimeout(timer);log('SOCKET ACK',event,ack);ack?.ok===false?reject(new Error(`${ack.code||'ERROR'}: ${ack.message||event}`)):resolve(ack||{ok:true})});
   });
 }
 
@@ -131,10 +131,14 @@ async function connectSocket(){
   const token=ui.token.value.trim(); if(!token) throw new Error('Paste this user’s access token first');
   if(typeof window.io!=='function'){ui.dependencyWarning?.classList.remove('hidden');throw new Error('Socket.IO client is missing. Use node server.mjs or keep socket.io.min.js beside index.html.')}
   socket?.disconnect();
-  socket=window.io(`${WS}/calls`,{path:'/socket.io',auth:{token},transports:['websocket','polling'],reconnection:true});
+  
+  // Conditionally use Guided Match /sessions namespace or standard Chat /calls namespace
+  const nsp = ui.useGuidedMatch.checked ? '/sessions' : '/calls';
+  socket=window.io(`${WS}${nsp}`,{path:'/socket.io',auth:{token},transports:['websocket','polling'],reconnection:true});
+  
   registerSocketEvents();
   await new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('Socket connection timed out')),10000);socket.once('connect',()=>{clearTimeout(t);resolve()});socket.once('connect_error',(e)=>{clearTimeout(t);reject(e)});});
-  ui.socketStatus.textContent=`connected (${socket.id})`; log('SOCKET','connected',{id:socket.id,transport:socket.io.engine.transport.name});
+  ui.socketStatus.textContent=`connected (${socket.id})`; log('SOCKET','connected',{id:socket.id,namespace:nsp,transport:socket.io.engine.transport.name});
   if(ui.callId.value.trim()) await attachCall(ui.callId.value.trim());
 }
 
@@ -155,7 +159,7 @@ function registerSocketEvents(){
   socket.on('video-disable',d=>{if(matches(d)){ui.remoteTrackStatus.textContent='peer disabled video';ui.remoteVideoInfo.textContent='peer camera off'}});
   for(const event of ['call-ended','call-cancelled','call-declined','call-missed']) socket.on(event,d=>{if(matches(d)) cleanup(`server event: ${event}`)});
 }
-function matches(d){return !currentCallId || callIdFrom(d)===currentCallId}
+function matches(d){return !currentCallId || callIdFrom(d)===currentCallId || d?.sessionId===currentCallId}
 function fail(e){log('ERROR',e.message||String(e));setCallStatus(`error: ${e.message||e}`)}
 
 async function fetchIceServers(){
@@ -165,7 +169,17 @@ async function fetchIceServers(){
 async function ensurePeer(){
   if(pc && pc.connectionState!=='closed')return pc;
   pc=new RTCPeerConnection({iceServers:await fetchIceServers()});remoteStream=new MediaStream();ui.remoteVideo.srcObject=remoteStream;
-  pc.onicecandidate=e=>{if(e.candidate&&currentCallId)emitAck('ice-candidate',{callId:currentCallId,candidate:e.candidate.toJSON()}).catch(fail)};
+  pc.onicecandidate=e=>{
+    if(e.candidate&&currentCallId) {
+      const payload = { candidate: e.candidate.toJSON() };
+      if (ui.useGuidedMatch.checked) {
+        payload.sessionId = currentCallId;
+      } else {
+        payload.callId = currentCallId;
+      }
+      emitAck('ice-candidate', payload).catch(fail);
+    }
+  };
   pc.ontrack=e=>{log('WEBRTC ONTRACK',`${e.track.kind} RECEIVED`,{id:e.track.id,enabled:e.track.enabled,muted:e.track.muted,streamCount:e.streams.length});if(!remoteStream.getTracks().some(t=>t.id===e.track.id))remoteStream.addTrack(e.track);ui.remoteVideo.srcObject=remoteStream;if(e.track.kind==='video'){ui.remoteTrackStatus.textContent=`RECEIVED: ${e.track.id}`;ui.remoteVideoInfo.textContent=`remote track ${e.track.id}`;e.track.onunmute=()=>log('WEBRTC','remote video unmuted',e.track.id);e.track.onended=()=>{ui.remoteTrackStatus.textContent='remote video ended';log('WEBRTC','remote video ended',e.track.id)}}};
   for(const name of ['connectionstatechange','iceconnectionstatechange','signalingstatechange','icegatheringstatechange'])pc[`on${name}`]=()=>{ui.pcStatus.textContent=`${pc.connectionState} / ICE ${pc.iceConnectionState}`;log('WEBRTC STATE',name,{connection:pc.connectionState,ice:pc.iceConnectionState,signaling:pc.signalingState,gathering:pc.iceGatheringState})};
   await ensureAudio();
@@ -204,30 +218,194 @@ function selectVideoTransceiver(){
 }
 function sdpSummary(desc){const lines=(desc?.sdp||'').split(/\r?\n/);let section='session';const result={type:desc?.type,audio:[],video:[]};for(const line of lines){if(line.startsWith('m=audio'))section='audio';if(line.startsWith('m=video'))section='video';if(/^a=(sendrecv|sendonly|recvonly|inactive)$/.test(line))result[section]?.push(line.slice(2));}return result}
 function dumpTransceivers(reason){if(!pc)return;log('WEBRTC TRANSCEIVERS',reason,pc.getTransceivers().map((t,i)=>({i,mid:t.mid,currentDirection:t.currentDirection,direction:t.direction,senderKind:t.sender.track?.kind||null,senderId:t.sender.track?.id||null,senderState:t.sender.track?.readyState||null,receiverKind:t.receiver.track?.kind||null,receiverId:t.receiver.track?.id||null})))}
-async function createAndSendOffer(reason){await ensurePeer();const offer=await pc.createOffer();await pc.setLocalDescription(offer);log('SDP LOCAL',`offer: ${reason}`,sdpSummary(pc.localDescription));dumpTransceivers('before offer emit');const ack=await emitAck('offer',{callId:currentCallId,sdp:pc.localDescription.toJSON()});lastNegotiationId=ack.negotiationId||lastNegotiationId;log('WEBRTC','offer acknowledged',{negotiationId:lastNegotiationId})}
-async function handleOffer(data){await ensurePeer();const desc=data.sdp?.sdp?data.sdp:data;lastNegotiationId=data.negotiationId;log('SDP REMOTE','offer',sdpSummary(desc));await pc.setRemoteDescription(desc);videoTransceiver=selectVideoTransceiver();await ensureLocalVideoOnNegotiatedTransceiver();await flushCandidates();const answer=await pc.createAnswer();await pc.setLocalDescription(answer);log('SDP LOCAL','answer',sdpSummary(pc.localDescription));dumpTransceivers('before answer emit');await emitAck('answer',{callId:currentCallId,negotiationId:lastNegotiationId,sdp:pc.localDescription.toJSON()});setCallStatus('connected')}
+
+async function createAndSendOffer(reason){
+  await ensurePeer();
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  log('SDP LOCAL',`offer: ${reason}`,sdpSummary(pc.localDescription));
+  dumpTransceivers('before offer emit');
+  const payload = { sdp: pc.localDescription.toJSON() };
+  if (ui.useGuidedMatch.checked) {
+    payload.sessionId = currentCallId;
+  } else {
+    payload.callId = currentCallId;
+  }
+  const ack=await emitAck('offer', payload);
+  lastNegotiationId=ack.negotiationId||lastNegotiationId;
+  log('WEBRTC','offer acknowledged',{negotiationId:lastNegotiationId});
+}
+
+async function handleOffer(data){
+  await ensurePeer();
+  const desc=data.sdp?.sdp?data.sdp:data;
+  lastNegotiationId=data.negotiationId;
+  log('SDP REMOTE','offer',sdpSummary(desc));
+  await pc.setRemoteDescription(desc);
+  videoTransceiver=selectVideoTransceiver();
+  await ensureLocalVideoOnNegotiatedTransceiver();
+  await flushCandidates();
+  const answer=await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  log('SDP LOCAL','answer',sdpSummary(pc.localDescription));
+  dumpTransceivers('before answer emit');
+  const payload = { negotiationId: lastNegotiationId, sdp: pc.localDescription.toJSON() };
+  if (ui.useGuidedMatch.checked) {
+    payload.sessionId = currentCallId;
+  } else {
+    payload.callId = currentCallId;
+  }
+  await emitAck('answer', payload);
+  setCallStatus('connected');
+}
+
 async function handleAnswer(data){const desc=data.sdp?.sdp?data.sdp:data;log('SDP REMOTE','answer',sdpSummary(desc));await pc.setRemoteDescription(desc);await flushCandidates();dumpTransceivers('remote answer applied');setCallStatus('connected')}
 async function handleRemoteCandidate(data){const candidate=data.candidate?.candidate?data.candidate:data.candidate;if(!candidate)return;if(pc?.remoteDescription){await pc.addIceCandidate(candidate);log('ICE','remote candidate applied',{type:candidate.candidate?.split(' typ ')[1]?.split(' ')[0]})}else{pendingCandidates.push(candidate);log('ICE','remote candidate queued')}}
 async function flushCandidates(){for(const c of pendingCandidates.splice(0))await pc.addIceCandidate(c);log('ICE','queued candidates flushed')}
 
-async function attachCall(id){currentCallId=id;ui.callId.value=id;await emitAck('join-call',{callId:id});ui.endBtn.disabled=false;startHeartbeat();log('CALL','joined signaling scope',id)}
-function startHeartbeat(){clearInterval(heartbeat);heartbeat=setInterval(()=>currentCallId&&api(`/calls/${currentCallId}/heartbeat`,'POST').catch(e=>log('WARN','heartbeat failed',e.message)),20000)}
-async function startAudio(){await connectIfNeeded();await ensurePeer();const data=await api('/calls','POST',{conversationId:ui.conversationId.value.trim(),callType:'audio'});currentCallId=callIdFrom(data);caller=true;ui.callId.value=currentCallId;setCallStatus('ringing');await attachCall(currentCallId);ui.endBtn.disabled=false}
-async function acceptCall(){await connectIfNeeded();currentCallId=ui.callId.value.trim()||currentCallId;caller=false;await ensurePeer();await attachCall(currentCallId);await api(`/calls/${currentCallId}/accept`,'POST');ui.acceptBtn.disabled=true;ui.declineBtn.disabled=true;setCallStatus('accepted — waiting for offer')}
-async function declineCall(){await api(`/calls/${currentCallId}/decline`,'POST');cleanup('declined')}
-async function requestUpgrade(){upgradeRequestedByMe=true;await emitAck('video-upgrade-request',{callId:currentCallId});setCallStatus('waiting for peer to accept video')}
-async function acceptUpgrade(){await enableCamera();await emitAck('video-upgrade-accept',{callId:currentCallId});await api(`/calls/${currentCallId}/upgrade-video`,'POST').catch(e=>log('WARN','REST upgrade persistence failed',e.message));ui.acceptVideoBtn.disabled=true;ui.declineVideoBtn.disabled=true;setCallStatus('video accepted — waiting for peer offer')}
+async function attachCall(id){
+  currentCallId=id;
+  ui.callId.value=id;
+  if (ui.useGuidedMatch.checked) {
+    await emitAck('join-session', {sessionId: id});
+  } else {
+    await emitAck('join-call', {callId: id});
+  }
+  ui.endBtn.disabled=false;
+  startHeartbeat();
+  log('CALL','joined signaling scope',id);
+}
+
+function startHeartbeat(){
+  clearInterval(heartbeat);
+  if (ui.useGuidedMatch.checked) return; // Guided match uses socket presence heartbeat, no REST heartbeat needed
+  heartbeat=setInterval(()=>currentCallId&&api(`/calls/${currentCallId}/heartbeat`,'POST').catch(e=>log('WARN','heartbeat failed',e.message)),20000);
+}
+
+async function startAudio(){
+  await connectIfNeeded();
+  await ensurePeer();
+  if (ui.useGuidedMatch.checked) {
+    const data = await api('/intro-sessions', 'POST', { partnerId: ui.peerUserId.value.trim() });
+    currentCallId = data.id || data.sessionId || data.conversationId;
+    caller = true;
+    ui.callId.value = currentCallId;
+    setCallStatus('joining guided session');
+    await attachCall(currentCallId);
+    ui.endBtn.disabled = false;
+  } else {
+    const data=await api('/calls','POST',{conversationId:ui.conversationId.value.trim(),callType:'audio'});
+    currentCallId=callIdFrom(data);
+    caller=true;
+    ui.callId.value=currentCallId;
+    setCallStatus('ringing');
+    await attachCall(currentCallId);
+    ui.endBtn.disabled=false;
+  }
+}
+
+async function acceptCall(){
+  await connectIfNeeded();
+  currentCallId=ui.callId.value.trim()||currentCallId;
+  caller=false;
+  await ensurePeer();
+  await attachCall(currentCallId);
+  if (ui.useGuidedMatch.checked) {
+    await api(`/intro-sessions/${currentCallId}/join`, 'POST');
+  } else {
+    await api(`/calls/${currentCallId}/accept`,'POST');
+  }
+  ui.acceptBtn.disabled=true;
+  ui.declineBtn.disabled=true;
+  setCallStatus('accepted — waiting for offer');
+}
+
+async function declineCall(){
+  if (!ui.useGuidedMatch.checked) {
+    await api(`/calls/${currentCallId}/decline`,'POST');
+  }
+  cleanup('declined');
+}
+
+async function requestUpgrade(){
+  upgradeRequestedByMe=true;
+  if (ui.useGuidedMatch.checked) {
+    await emitAck('video-upgrade-request', { sessionId: currentCallId });
+  } else {
+    await emitAck('video-upgrade-request', { callId: currentCallId });
+  }
+  setCallStatus('waiting for peer to accept video');
+}
+
+async function acceptUpgrade(){
+  await enableCamera();
+  if (ui.useGuidedMatch.checked) {
+    await emitAck('video-upgrade-accept', { sessionId: currentCallId });
+    await api(`/intro-sessions/${currentCallId}/video`, 'POST', { enabled: true }).catch(e => log('WARN', 'REST upgrade persistence failed', e.message));
+  } else {
+    await emitAck('video-upgrade-accept', { callId: currentCallId });
+    await api(`/calls/${currentCallId}/upgrade-video`, 'POST').catch(e => log('WARN', 'REST upgrade persistence failed', e.message));
+  }
+  ui.acceptVideoBtn.disabled=true;
+  ui.declineVideoBtn.disabled=true;
+  setCallStatus('video accepted — waiting for peer offer');
+}
+
 async function handleUpgradeAccepted(data,eventName='video-upgrade-accepted'){
   const revision=data?.mediaRevision??data?.media_revision??'no-revision';
   if(lastHandledUpgradeRevision===revision){log('CALL','duplicate video upgrade accepted ignored',{eventName,revision});return}
   lastHandledUpgradeRevision=revision;
   log('CALL','video upgrade accepted',{eventName,...(data||{})});
-  if(upgradeRequestedByMe){await enableCamera();await api(`/calls/${currentCallId}/upgrade-video`,'POST').catch(e=>log('WARN','REST upgrade persistence failed',e.message));await createAndSendOffer('audio to video upgrade');upgradeRequestedByMe=false}
-  setCallStatus('video negotiation in progress')
+  if(upgradeRequestedByMe){
+    await enableCamera();
+    if (ui.useGuidedMatch.checked) {
+      await api(`/intro-sessions/${currentCallId}/video`, 'POST', { enabled: true }).catch(e => log('WARN', 'REST upgrade persistence failed', e.message));
+    } else {
+      await api(`/calls/${currentCallId}/upgrade-video`, 'POST').catch(e => log('WARN', 'REST upgrade persistence failed', e.message));
+    }
+    await createAndSendOffer('audio to video upgrade');
+    upgradeRequestedByMe=false;
+  }
+  setCallStatus('video negotiation in progress');
 }
-async function declineUpgrade(){await emitAck('video-upgrade-decline',{callId:currentCallId});ui.acceptVideoBtn.disabled=true;ui.declineVideoBtn.disabled=true;setCallStatus('video declined')}
-async function disableVideo(){const track=localStream?.getVideoTracks()[0];track?.stop();if(videoTransceiver){await videoTransceiver.sender.replaceTrack(null);videoTransceiver.direction='recvonly'}ui.localVideo.srcObject=null;ui.localVideoInfo.textContent='camera off';await emitAck('video-disable',{callId:currentCallId});await createAndSendOffer('local video disabled');ui.disableVideoBtn.disabled=true}
-async function endCall(){if(currentCallId)await api(`/calls/${currentCallId}/end`,'POST').catch(fail);cleanup('ended locally')}
+
+async function declineUpgrade(){
+  if (ui.useGuidedMatch.checked) {
+    await emitAck('video-upgrade-decline', { sessionId: currentCallId });
+  } else {
+    await emitAck('video-upgrade-decline', { callId: currentCallId });
+  }
+  ui.acceptVideoBtn.disabled=true;
+  ui.declineVideoBtn.disabled=true;
+  setCallStatus('video declined');
+}
+
+async function disableVideo(){
+  const track=localStream?.getVideoTracks()[0];
+  track?.stop();
+  if(videoTransceiver){await videoTransceiver.sender.replaceTrack(null);videoTransceiver.direction='recvonly'}
+  ui.localVideo.srcObject=null;
+  ui.localVideoInfo.textContent='camera off';
+  if (ui.useGuidedMatch.checked) {
+    await emitAck('video-disable', { sessionId: currentCallId });
+  } else {
+    await emitAck('video-disable', { callId: currentCallId });
+  }
+  await createAndSendOffer('local video disabled');
+  ui.disableVideoBtn.disabled=true;
+}
+
+async function endCall(){
+  if(currentCallId) {
+    if (ui.useGuidedMatch.checked) {
+      await api(`/intro-sessions/${currentCallId}/end`, 'POST').catch(fail);
+    } else {
+      await api(`/calls/${currentCallId}/end`, 'POST').catch(fail);
+    }
+  }
+  cleanup('ended locally');
+}
+
 async function loadActive(){await connectIfNeeded();const data=await api('/calls/active');if(!data)return setCallStatus('no active call');currentCallId=callIdFrom(data);ui.callId.value=currentCallId;ui.conversationId.value=data.conversationId||'';caller=!!data.callerId;await attachCall(currentCallId);setCallStatus(data.status||'active loaded')}
 async function connectIfNeeded(){if(!socket?.connected)await connectSocket()}
 
@@ -322,6 +500,28 @@ async function sendMatchRequest(forcedUid) {
     expiresInSeconds: 300
   });
   log('MATCH', 'Match request sent', data);
+  
+  const matchId = data?.matchId || data?.data?.matchId || data?.id;
+  if (matchId) {
+    log('MATCH', `Match request ID: ${matchId}. Polling session confirmation...`);
+    const pollInterval = setInterval(async () => {
+      try {
+        const confirmData = await api(`/sessions/${matchId}/confirm`, 'POST');
+        const sid = confirmData?.sessionId || confirmData?.data?.sessionId;
+        if (sid) {
+          clearInterval(pollInterval);
+          ui.callId.value = sid;
+          ui.useGuidedMatch.checked = true;
+          log('MATCH', `Match CONFIRMED! Session ID is: ${sid}. Connecting socket namespace /sessions...`);
+          await connectSocket();
+        }
+      } catch (e) {
+        log('MATCH', 'Confirm poll pending...', e.message);
+      }
+    }, 2000);
+    // Timeout after 60 seconds
+    setTimeout(() => clearInterval(pollInterval), 60000);
+  }
 }
 
 async function getIncomingRequests() {
@@ -381,8 +581,21 @@ async function acceptMatchRequest() {
     action: 'accept'
   });
   log('MATCH', 'Match request ACCEPTED', data);
-  // Auto-load active call when accepted
-  setTimeout(() => loadActive().catch(fail), 1500);
+  
+  // Fetch real sessionId from post confirm session
+  const confirmData = await api(`/sessions/${matchId}/confirm`, 'POST').catch(err => {
+    log('WARN', 'Initial confirm fetch failed (normal if peer hasn\'t accepted yet)', err.message);
+    return null;
+  });
+  const sid = confirmData?.sessionId || confirmData?.data?.sessionId;
+  if (sid) {
+    ui.callId.value = sid;
+    ui.useGuidedMatch.checked = true;
+    log('MATCH', `Confirmed Match Session ID is: ${sid}. Connecting socket namespace /sessions...`);
+    await connectSocket();
+  } else {
+    log('MATCH', 'Confirm pending or sessionId not returned; will poll on next interval');
+  }
 }
 
 async function declineMatchRequest() {
