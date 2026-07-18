@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>ZoujUp WebRTC Diagnostic</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">Production call test</span>
+        <h1>Audio to Video Diagnostic</h1>
+      </div>
+      <span id="secureBadge" class="badge">Checking HTTPS</span>
+    </header>
+
+    <section id="secureWarning" class="notice hidden">
+      Phone camera and microphone require HTTPS. Use the HTTPS URL printed by <code>node server.mjs</code>, then trust the local CA certificate.
+    </section>
+
+    <section id="dependencyWarning" class="notice hidden">
+      Socket.IO client did not load. Run <code>node server.mjs</code> from this folder or make sure <code>socket.io.min.js</code> is beside <code>index.html</code>.
+    </section>
+
+    <section class="card identity">
+      <div>
+        <label>Device name</label>
+        <input id="role" value="User A - Laptop" autocomplete="off">
+      </div>
+      <div class="mode-strip" aria-label="Common device names">
+        <button type="button" data-role-preset="User A - Laptop">A Laptop</button>
+        <button type="button" data-role-preset="User B - Mobile">B Mobile</button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <section class="card step">
+        <div class="step-head">
+          <span>1</span>
+          <div>
+            <h2>Register Or Login</h2>
+            <p>Create a production test account with temp-mail, or use an existing token.</p>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label>Temp email<input id="registerEmail" type="email" placeholder="name@temp-mail.org" autocomplete="email"></label>
+          <label>Name<input id="registerName" value="WebRTC Test User" autocomplete="name"></label>
+          <label>OTP code<input id="registerOtp" inputmode="numeric" placeholder="6 digits" autocomplete="one-time-code"></label>
+          <label>Known language<select id="knownLanguage"></select></label>
+          <label>Want to learn<select id="learnLanguage"></select></label>
+          <label>Level<select id="cefrLevel">
+            <option value="B2">B2</option>
+            <option value="C1">C1</option>
+            <option value="B1">B1</option>
+            <option value="A2">A2</option>
+            <option value="C2">C2</option>
+          </select></label>
+        </div>
+
+        <div class="button-row">
+          <button id="registerBtn">Send register OTP</button>
+          <button id="completeRegisterBtn" class="success">Verify and complete</button>
+        </div>
+
+        <details class="advanced">
+          <summary>Existing account or pasted token</summary>
+          <div class="form-grid compact">
+            <label>Email<input id="email" type="email" placeholder="existing account email" autocomplete="email"></label>
+            <label>OTP<input id="otp" inputmode="numeric" placeholder="6 digits" autocomplete="one-time-code"></label>
+            <label>Access token<input id="token" type="password" placeholder="Paste JWT access token" autocomplete="off"></label>
+          </div>
+          <div class="button-row">
+            <button id="copyRegisterToLoginBtn">Copy temp email</button>
+            <button id="sendOtpBtn">Send login OTP</button>
+            <button id="verifyOtpBtn">Verify login OTP</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="card step">
+        <div class="step-head">
+          <span>2</span>
+          <div>
+            <h2>Pair Users</h2>
+            <p>User A creates the conversation with User B's ID. Both users mark it ready.</p>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label>My user ID<input id="myUserId" placeholder="Auto-filled after login" autocomplete="off" readonly></label>
+          <label>Peer user ID<input id="peerUserId" placeholder="Paste the other user's ID" autocomplete="off"></label>
+          <label class="wide">Conversation ID<input id="conversationId" placeholder="Shared conversation UUID" autocomplete="off"></label>
+          <label class="wide muted-field">Existing call ID<input id="callId" placeholder="Optional, auto-filled by incoming/outgoing call" autocomplete="off"></label>
+        </div>
+
+        <div class="button-row">
+          <button id="createConversationBtn">Create conversation</button>
+          <button id="markReadyBtn">Mark ready</button>
+          <button id="connectBtn" class="primary">Connect realtime</button>
+        </div>
+      </section>
+
+      <section class="card step call-card">
+        <div class="step-head">
+          <span>3</span>
+          <div>
+            <h2>Run Call</h2>
+            <p>Start with audio, then upgrade to video and check whether the remote track arrives.</p>
+          </div>
+        </div>
+
+        <div class="status-grid">
+          <div><span>Socket</span><strong id="socketStatus">disconnected</strong></div>
+          <div><span>Call</span><strong id="callStatus">idle</strong></div>
+          <div><span>Peer</span><strong id="pcStatus">not created</strong></div>
+          <div><span>Remote video</span><strong id="remoteTrackStatus">not received</strong></div>
+        </div>
+
+        <div class="button-row call-actions">
+          <button id="startAudioBtn" class="primary">Start audio</button>
+          <button id="acceptBtn" class="success" disabled>Accept call</button>
+          <button id="upgradeBtn" class="video" disabled>Request video</button>
+          <button id="acceptVideoBtn" class="success" disabled>Accept video</button>
+          <button id="endBtn" class="danger" disabled>End</button>
+        </div>
+
+        <details class="advanced">
+          <summary>Less common actions</summary>
+          <div class="button-row">
+            <button id="declineBtn" disabled>Decline call</button>
+            <button id="declineVideoBtn" disabled>Decline video</button>
+            <button id="disableVideoBtn" disabled>Disable video</button>
+            <button id="loadActiveBtn">Load active call</button>
+          </div>
+        </details>
+      </section>
+    </section>
+
+    <section class="videos">
+      <article class="card">
+        <div class="video-title"><strong>Local video</strong><span id="localVideoInfo">camera off</span></div>
+        <video id="localVideo" autoplay muted playsinline></video>
+      </article>
+      <article class="card">
+        <div class="video-title"><strong>Remote video</strong><span id="remoteVideoInfo">waiting for peer</span></div>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </article>
+    </section>
+
+    <section class="card diagnostics">
+      <div class="diagnostic-head">
+        <div>
+          <h2>Evidence Log</h2>
+          <p>Check for <code>WEBRTC ONTRACK video RECEIVED</code> on both devices.</p>
+        </div>
+        <div class="button-row tight">
+          <button id="copyReportBtn">Copy report</button>
+          <button id="clearLogBtn">Clear</button>
+        </div>
+      </div>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="./socket.io.min.js"></script>
+  <script>
+    if (!window.io) {
+      document.write('<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"><\\/script>');
+    }
+  </script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
